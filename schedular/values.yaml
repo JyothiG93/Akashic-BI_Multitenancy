@@ -1,0 +1,30 @@
+release:
+  name: multitenantschedular
+pod:
+ name: multitenatworkerbeat
+storageclassname: workerbeat-ebs-sc
+superset_worker_beatcontainer:
+  name: superset-worker-beat
+  image: 802160436285.dkr.ecr.us-west-1.amazonaws.com/akashicmt:superset0.4
+  imagepullPolicy: IfNotPresent
+namespace:
+  name: schedular
+configMapdata:
+  superset:
+    pythonpath: /app/pythonpath:/app/docker/pythonpath_dev
+    supersetenv: production
+    cypressconfig: false
+    mapboxapikey: ''
+pvc:
+  name: workerbeat-pvc
+  storageClassName: workerbeat-ebs-sc
+  storage: 5Gi
+configmapname: workerbeat-app-config 
+ecrsecretname: workerbeat-awsecr-cred 
+secretcredname: workerbeat-cred
+file1configmap: workerbeat-mnt-config
+file2configmap: workerbeat-mnt1-config
+service:
+   worker:
+    port: 80
+    targetport: 80

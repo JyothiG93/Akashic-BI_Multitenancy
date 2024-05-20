@@ -1,0 +1,18 @@
+Pod CPU and memory usage at 2024-05-09 18:14:35:
+Namespace: tenant1
+NAME                 CPU(cores)   MEMORY(bytes)   
+tenant1-akashic-bi   6m           672Mi           
+
+Namespace: tenant2
+NAME                 CPU(cores)   MEMORY(bytes)   
+tenant2-akashic-bi   7m           672Mi           
+
+Namespace: tenant3
+NAME                 CPU(cores)   MEMORY(bytes)   
+tenant3-akashic-bi   6m           671Mi           
+
+
+Node CPU and memory usage at 2024-05-09 18:14:35:
+NAME                                        CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%   
+ip-10-0-55-241.us-west-1.compute.internal   72m          1%     2120Mi          14%       
+ip-10-0-91-24.us-west-1.compute.internal    70m          1%     1522Mi          10%       

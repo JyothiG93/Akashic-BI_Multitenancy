@@ -1,0 +1,14 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    meta.helm.sh/release-name: {{ .Values.release.name | quote }}
+    meta.helm.sh/release-namespace: {{ .Values.namespace.name | quote }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  name: {{ .Values.storageclassname | quote }}
+  namespace: {{ .Values.namespace.name | quote }}
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp2
+

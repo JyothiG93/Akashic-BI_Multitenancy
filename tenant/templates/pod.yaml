@@ -1,0 +1,255 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Values.pods.pod2.name | quote }}
+  namespace: {{ .Values.namespace.name | quote }}
+  labels: 
+     app: superset
+spec:
+  restartPolicy: {{ .Values.pods.pod2.restartPolicy | quote }}
+  initContainers:
+  - name: database-redis-check
+    image: busybox:1.28
+    command: [ "/bin/sh", "-c", "until nc -zv {{ .Release.Name }}-database-redis-service 5432 -w1 ; do echo 'waiting for db' ; sleep1 ; done" ]
+  - name: {{ .Values.superset_initcontainer.name | quote }}
+    image: {{ .Values.superset_initcontainer.image | quote }}
+    imagePullPolicy: {{ .Values.superset_initcontainer.imagePullPolicy | quote }}
+    securityContext:
+      runAsUser: 0
+    command: ["/app/docker/docker-init.sh"]
+    env:
+      - name: POSTGRES_HOST
+        value: multitenant-service.databaseengine.svc.cluster.local
+      - name: POSTGRES_DB
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: postgres-db
+      - name: POSTGRES_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: postgres-user
+      - name: POSTGRES_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: postgres-password
+{{- range $key, $value := .Values.configMapdata.app }}
+      - name: {{ $key | upper | replace "-" "_" }}
+        value: {{ $value | quote }}
+{{- end }}
+      - name: REDIS_HOST
+        value: {{ .Release.Name }}-database-redis-service
+      - name: REDIS_PORT  
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-port
+      - name: REDIS_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-user
+      - name: REDIS_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-password
+      - name: DATABASE_HOST
+        value: {{ .Release.Name }}-database-redis-service
+      - name: DATABASE_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: db-port
+      - name: DATABASE_DIALECT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: dialect
+      - name: DATABASE_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: db-user
+      - name: DATABASE_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: db-password
+      - name: DATABASE_DB
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: database-db
+      - name: EXAMPLES_HOST
+        value: {{ .Release.Name }}-database-redis-service
+      - name: EXAMPLES_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-port
+      - name: EXAMPLES_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-user
+      - name: EXAMPLES_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-password
+      - name: EXAMPLES_DB
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-db
+      - name: SUPERSET_SECRET_KEY
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key:   app-secretkey
+      - name: SUPERSET_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: superset-port
+    volumeMounts:
+      - name: superset-home
+        mountPath: /app/superset_home
+      - name: config-volume
+        mountPath: /app/docker
+      - name: superset-config-volume
+        mountPath: /app/pythonpath
+  containers:
+  - name: {{ .Values.supersetContainer.name | quote }}
+    image: {{ .Values.supersetContainer.image | quote }}
+    imagePullPolicy: {{ .Values.supersetContainer.imagePullPolicy | quote }}
+    ports:
+    - containerPort: {{ .Values.supersetContainer.port }}
+    securityContext:
+      runAsUser: 0
+    command: ["/app/docker/docker-bootstrap.sh", "app-gunicorn"]
+    env:
+      - name: POSTGRES_HOST
+        value: multitenant-service.databaseengine.svc.cluster.local
+      - name: POSTGRES_DB
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: postgres-db
+      - name: POSTGRES_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: postgres-user
+      - name: POSTGRES_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: postgres-password
+{{- range $key, $value := .Values.configMapdata.app }}
+      - name: {{ $key | upper | replace "-" "_" }}
+        value: {{ $value | quote }}
+{{- end }}
+      - name: DATABASE_HOST
+        value: {{ .Release.Name }}-database-redis-service
+      - name: DATABASE_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: db-port
+      - name: DATABASE_DIALECT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: dialect
+      - name: DATABASE_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: db-user
+      - name: DATABASE_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: db-password
+      - name: DATABASE_DB
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: database-db
+      - name: EXAMPLES_HOST
+        value: {{ .Release.Name }}-database-redis-service
+      - name: EXAMPLES_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-port
+      - name: EXAMPLES_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-user
+      - name: EXAMPLES_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-password
+      - name: EXAMPLES_DB
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-db
+      - name: REDIS_HOST
+        value: {{ .Release.Name }}-database-redis-service
+      - name: REDIS_PORT  
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-port
+      - name: REDIS_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-user
+      - name: REDIS_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-password
+      - name: SUPERSET_SECRET_KEY
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: app-secretkey
+      - name: SUPERSET_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: superset-port
+    volumeMounts:
+      - name: superset-home
+        mountPath: /app/superset_home
+      - name: config-volume
+        mountPath: /app/docker
+      - name: superset-config-volume
+        mountPath: /app/pythonpath
+  imagePullSecrets:
+  - name: {{ .Values.ecrsecretname | quote }}
+  volumes:
+    - name: superset-home
+      persistentVolumeClaim:
+        claimName: {{ .Values.pvc.superset.name | quote }}
+    - name: config-volume
+      configMap:
+        name: {{ .Values.file1configmap | quote }} 
+        defaultMode: 0777
+    - name: superset-config-volume
+      configMap:
+        name: {{ .Values.file3configmap | quote }} 
+        defaultMode: 0777
+    
+    
+    

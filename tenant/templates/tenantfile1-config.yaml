@@ -1,0 +1,617 @@
+apiVersion: v1
+data:
+  docker-bootstrap.sh: |+
+    #!/usr/bin/env bash
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one or more
+    # contributor license agreements.  See the NOTICE file distributed with
+    # this work for additional information regarding copyright ownership.
+    # The ASF licenses this file to You under the Apache License, Version 2.0
+    # (the "License"); you may not use this file except in compliance with
+    # the License.  You may obtain a copy of the License at
+    #
+    #    http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+
+    set -eo pipefail
+
+    REQUIREMENTS_LOCAL="/app/docker/requirements-local.txt"
+    # If Cypress run – overwrite the password for admin and export env variables
+    if [ "$CYPRESS_CONFIG" == "true" ]; then
+        export SUPERSET_CONFIG=tests.integration_tests.superset_test_config
+        export SUPERSET_TESTENV=true
+        export SUPERSET__SQLALCHEMY_DATABASE_URI=postgresql+psycopg2://superset:superset@{{ .Release.Name }}-database-redis-service:5432/superset
+    fi
+    #
+    # Make sure we have dev requirements installed
+    #
+    if [ -f "${REQUIREMENTS_LOCAL}" ]; then
+      echo "Installing local overrides at ${REQUIREMENTS_LOCAL}"
+      pip install --no-cache-dir -r "${REQUIREMENTS_LOCAL}"
+    else
+      echo "Skipping local overrides"
+    fi
+
+    #
+    # playwright is an optional package - run only if it is installed
+    #
+    if command -v playwright > /dev/null 2>&1; then
+      playwright install-deps
+      playwright install chromium
+    fi
+
+    case "${1}" in
+      worker)
+        echo "Starting Celery worker..."
+        celery --app=superset.tasks.celery_app:app worker -O fair -l INFO
+        ;;
+      beat)
+        echo "Starting Celery beat..."
+        rm -f /tmp/celerybeat.pid
+        celery --app=superset.tasks.celery_app:app beat --pidfile /tmp/celerybeat.pid -l INFO -s "${SUPERSET_HOME}"/celerybeat-schedule
+        ;;
+      app)
+        echo "Starting web app (using development server)..."
+        flask run -p 8088 --with-threads --reload --debugger --host=0.0.0.0
+        ;;
+      app-gunicorn)
+        echo "Starting web app..."
+        /usr/bin/run-server.sh
+        ;;
+      *)
+        echo "Unknown Operation!!!"
+        ;;
+    esac
+
+  docker-ci.sh: |
+    #!/usr/bin/env bash
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one or more
+    # contributor license agreements.  See the NOTICE file distributed with
+    # this work for additional information regarding copyright ownership.
+    # The ASF licenses this file to You under the Apache License, Version 2.0
+    # (the "License"); you may not use this file except in compliance with
+    # the License.  You may obtain a copy of the License at
+    #
+    #    http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+    /app/docker/docker-init.sh
+
+    # TODO: copy config overrides from ENV vars
+
+    # TODO: run celery in detached state
+    export SERVER_THREADS_AMOUNT=8
+    # start up the web server
+
+    /usr/bin/run-server.sh
+  docker-frontend.sh: |
+    #!/usr/bin/env bash
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one or more
+    # contributor license agreements.  See the NOTICE file distributed with
+    # this work for additional information regarding copyright ownership.
+    # The ASF licenses this file to You under the Apache License, Version 2.0
+    # (the "License"); you may not use this file except in compliance with
+    # the License.  You may obtain a copy of the License at
+    #
+    #    http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+    set -e
+
+    # Packages needed for puppeteer:
+    apt update
+    apt install -y chromium
+
+    cd /app/superset-frontend
+    npm install -f --no-optional --global webpack webpack-cli
+    npm install -f --no-optional
+
+    echo "Running frontend"
+    npm run dev
+  docker-init.sh: |+
+    #!/usr/bin/env bash
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one or more
+    # contributor license agreements.  See the NOTICE file distributed with
+    # this work for additional information regarding copyright ownership.
+    # The ASF licenses this file to You under the Apache License, Version 2.0
+    # (the "License"); you may not use this file except in compliance with
+    # the License.  You may obtain a copy of the License at
+    #
+    #    http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+    set -e
+
+    #
+    # Always install local overrides first
+    #
+    /app/docker/docker-bootstrap.sh
+
+    STEP_CNT=4
+
+    echo_step() {
+    cat <<EOF
+
+    ######################################################################
+
+
+    Init Step ${1}/${STEP_CNT} [${2}] -- ${3}
+
+
+    ######################################################################
+
+    EOF
+    }
+    ADMIN_PASSWORD="admin"
+    # If Cypress run – overwrite the password for admin and export env variables
+    if [ "$CYPRESS_CONFIG" == "true" ]; then
+        ADMIN_PASSWORD="general"
+        export SUPERSET_CONFIG=tests.integration_tests.superset_test_config
+        export SUPERSET_TESTENV=true
+        export SUPERSET__SQLALCHEMY_DATABASE_URI=postgresql+psycopg2://superset:superset@{{ .Release.Name }}-database-redis-service:5432/superset
+    fi
+    # Initialize the database
+    echo_step "1" "Starting" "Applying DB migrations"
+    superset db upgrade
+    echo_step "1" "Complete" "Applying DB migrations"
+
+    # Create an admin user
+    echo_step "2" "Starting" "Setting up admin user ( admin / $ADMIN_PASSWORD )"
+    superset fab create-admin \
+                  --username admin \
+                  --firstname Superset \
+                  --lastname Admin \
+                  --email admin@superset.com \
+                  --password $ADMIN_PASSWORD
+    echo_step "2" "Complete" "Setting up admin user"
+    # Create default roles and permissions
+    echo_step "3" "Starting" "Setting up roles and perms"
+    superset init
+    echo_step "3" "Complete" "Setting up roles and perms"
+
+    if [ "$SUPERSET_LOAD_EXAMPLES" = "yes" ]; then
+        # Load some data to play with
+        echo_step "4" "Starting" "Loading examples"
+        # If Cypress run which consumes superset_test_config – load required data for tests
+        if [ "$CYPRESS_CONFIG" == "true" ]; then
+            superset load_test_users
+            superset load_examples --load-test-data
+        else
+            superset load_examples --force
+        fi
+        echo_step "4" "Complete" "Loading examples"
+    fi
+
+  examples-init.sh: |+
+    # ------------------------------------------------------------------------
+    # Creates the examples database and respective user. This database location
+    # and access credentials are defined on the environment variables
+    # ------------------------------------------------------------------------
+    set -e
+
+
+    psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER}" <<-EOSQL
+      CREATE USER ${DATABASE_USER} WITH PASSWORD '${DATABASE_PASSWORD}';
+      GRANT ALL PRIVILEGES ON DATABASE ${DATABASE_DB} TO ${DATABASE_USER};
+    EOSQL
+
+    psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER}" -d "${DATABASE_DB}" <<-EOSQL
+       GRANT ALL ON SCHEMA public TO ${DATABASE_USER};
+    EOSQL
+
+
+
+    psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER}" <<-EOSQL
+      CREATE USER ${EXAMPLES_USER} WITH PASSWORD '${EXAMPLES_PASSWORD}';
+      CREATE DATABASE ${EXAMPLES_DB};
+      GRANT ALL PRIVILEGES ON DATABASE ${EXAMPLES_DB} TO ${EXAMPLES_USER};
+    EOSQL
+
+    psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER}" -d "${EXAMPLES_DB}" <<-EOSQL
+       GRANT ALL ON SCHEMA public TO ${EXAMPLES_USER};
+    EOSQL
+
+  frontend-mem-nag.sh: |
+    #!/usr/bin/env bash
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one or more
+    # contributor license agreements.  See the NOTICE file distributed with
+    # this work for additional information regarding copyright ownership.
+    # The ASF licenses this file to You under the Apache License, Version 2.0
+    # (the "License"); you may not use this file except in compliance with
+    # the License.  You may obtain a copy of the License at
+    #
+    #    http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+
+    set -e
+
+    # We need at least 3GB of free mem...
+    MIN_MEM_FREE_GB=3
+    MIN_MEM_FREE_KB=$(($MIN_MEM_FREE_GB*1000000))
+
+    echo_mem_warn() {
+      MEM_FREE_KB=$(awk '/MemFree/ { printf "%s \n", $2 }' /proc/meminfo)
+      MEM_FREE_GB=$(awk '/MemFree/ { printf "%s \n", $2/1024/1024 }' /proc/meminfo)
+
+      if [[ "${MEM_FREE_KB}" -lt "${MIN_MEM_FREE_KB}" ]]; then
+        cat <<EOF
+        ===============================================
+        ========  Memory Insufficient Warning =========
+        ===============================================
+
+        It looks like you only have ${MEM_FREE_GB}GB of
+        memory free. Please increase your Docker
+        resources to at least ${MIN_MEM_FREE_GB}GB
+
+        ===============================================
+        ========  Memory Insufficient Warning =========
+        ===============================================
+    EOF
+      else
+        echo "Memory check Ok [${MEM_FREE_GB}GB free]"
+      fi
+    }
+
+    # Always nag if they're low on mem...
+    echo_mem_warn
+  nginx.conf: |
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one or more
+    # contributor license agreements.  See the NOTICE file distributed with
+    # this work for additional information regarding copyright ownership.
+    # The ASF licenses this file to You under the Apache License, Version 2.0
+    # (the "License"); you may not use this file except in compliance with
+    # the License.  You may obtain a copy of the License at
+    #
+    #    http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+    user  nginx;
+    worker_processes  1;
+
+    error_log  /var/log/nginx/error.log warn;
+    pid        /var/run/nginx.pid;
+
+
+    events {
+        worker_connections  1024;
+    }
+
+
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+
+        log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent [$connection_requests] "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+
+        access_log  /var/log/nginx/access.log  main;
+
+        sendfile        on;
+        #tcp_nopush     on;
+
+        keepalive_timeout  30;
+        keepalive_requests 2;
+
+        ###### Compression Stuff
+
+        # Enable Gzip compressed.
+        gzip on;
+
+        # Compression level (1-9).
+        # 5 is a perfect compromise between size and cpu usage, offering about
+        # 75% reduction for most ascii files (almost identical to level 9).
+        gzip_comp_level    5;
+
+        # Don't compress anything that's already small and unlikely to shrink much
+        # if at all (the default is 20 bytes, which is bad as that usually leads to
+        # larger files after gzipping).
+        gzip_min_length    256;
+
+        # Compress data even for clients that are connecting to us via proxies,
+        # identified by the "Via" header (required for CloudFront).
+        gzip_proxied       any;
+
+        # Tell proxies to cache both the gzipped and regular version of a resource
+        # whenever the client's Accept-Encoding capabilities header varies;
+        # Avoids the issue where a non-gzip capable client (which is extremely rare
+        # today) would display gibberish if their proxy gave them the gzipped version.
+        gzip_vary          on;
+
+        # Compress all output labeled with one of the following MIME-types.
+        gzip_types
+            application/atom+xml
+            application/javascript
+            application/json
+            application/rss+xml
+            application/vnd.ms-fontobject
+            application/x-font-ttf
+            application/x-web-app-manifest+json
+            application/xhtml+xml
+            application/xml
+            font/opentype
+            image/svg+xml
+            image/x-icon
+            text/css
+            text/plain
+            text/x-component;
+        # text/html is always compressed by HttpGzipModule
+
+        output_buffers 20 10m;
+
+        client_max_body_size 10m;
+
+        upstream superset_app {
+            server host.docker.internal:8088;
+            keepalive 100;
+        }
+
+        upstream superset_websocket {
+            server host.docker.internal:8080;
+            keepalive 100;
+        }
+
+        server {
+            listen 80 default_server;
+            server_name  _;
+
+            location /ws {
+                proxy_pass http://superset_websocket;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "Upgrade";
+                proxy_set_header Host $host;
+            }
+
+            location / {
+                proxy_pass http://superset_app;
+                proxy_set_header    Host                $host;
+                proxy_set_header    X-Real-IP           $remote_addr;
+                proxy_set_header    X-Forwarded-For     $remote_addr;
+                proxy_set_header    X-Forwarded-Host    $host;
+                proxy_set_header    X-Forwarded-Proto   $scheme;
+                proxy_http_version 1.1;
+                port_in_redirect off;
+                proxy_connect_timeout 300;
+            }
+        }
+    }
+  requirements-local.txt: |
+    python-keycloak==3.3.0
+    WeasyPrint==60.1
+  run-server.sh: |+
+    #!/usr/bin/env bash
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one
+    # or more contributor license agreements.  See the NOTICE file
+    # distributed with this work for additional information
+    # regarding copyright ownership.  The ASF licenses this file
+    # to you under the Apache License, Version 2.0 (the
+    # "License"); you may not use this file except in compliance
+    # with the License.  You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing,
+    # software distributed under the License is distributed on an
+    # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    # KIND, either express or implied.  See the License for the
+    # specific language governing permissions and limitations
+    # under the License.
+    #
+    HYPHEN_SYMBOL='-'
+
+    gunicorn \
+        --bind "${SUPERSET_BIND_ADDRESS:-0.0.0.0}:${SUPERSET_PORT:-8088}" \
+        --access-logfile "${ACCESS_LOG_FILE:-$HYPHEN_SYMBOL}" \
+        --error-logfile "${ERROR_LOG_FILE:-$HYPHEN_SYMBOL}" \
+        --workers ${SERVER_WORKER_AMOUNT:-1} \
+        --worker-class ${SERVER_WORKER_CLASS:-gthread} \
+        --threads ${SERVER_THREADS_AMOUNT:-20} \
+        --timeout ${GUNICORN_TIMEOUT:-60} \
+        --keep-alive ${GUNICORN_KEEPALIVE:-2} \
+        --max-requests ${WORKER_MAX_REQUESTS:-0} \
+        --max-requests-jitter ${WORKER_MAX_REQUESTS_JITTER:-0} \
+        --limit-request-line ${SERVER_LIMIT_REQUEST_LINE:-0} \
+        --limit-request-field_size ${SERVER_LIMIT_REQUEST_FIELD_SIZE:-0} \
+        "${FLASK_APP}"
+
+
+  superset_config.cpython-39.pyc: |
+    xterm-256colorxterm-256colorxterm-256colorxterm-256color6cxterm-256colorxterm-256colorxterm-256colorxterm-256colorxterm-256colorxterm-256color
+  superset_config.py: |+
+    # Licensed to the Apache Software Foundation (ASF) under one
+    # or more contributor license agreements.  See the NOTICE file
+    # distributed with this work for additional information
+    # regarding copyright ownership.  The ASF licenses this file
+    # to you under the Apache License, Version 2.0 (the
+    # "License"); you may not use this file except in compliance
+    # with the License.  You may obtain a copy of the License at
+    #
+    #   http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing,
+    # software distributed under the License is distributed on an
+    # "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    # KIND, either express or implied.  See the License for the
+    # specific language governing permissions and limitations
+    # under the License.
+    #
+    # This file is included in the final Docker image and SHOULD be overridden when
+    # deploying the image to prod. Settings configured here are intended for use in local
+    # development environments. Also note that superset_config_docker.py is imported
+    # as a final step as a means to override "defaults" configured here
+    #
+    import logging
+    import os
+
+    from celery.schedules import crontab
+    from flask_caching.backends.filesystemcache import FileSystemCache
+
+    logger = logging.getLogger()
+
+    DATABASE_DIALECT = os.getenv("DATABASE_DIALECT")
+    DATABASE_USER = os.getenv("DATABASE_USER")
+    DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD")
+    DATABASE_HOST = os.getenv("DATABASE_HOST")
+    DATABASE_PORT = os.getenv("DATABASE_PORT")
+    DATABASE_DB = os.getenv("DATABASE_DB")
+
+    EXAMPLES_USER = os.getenv("EXAMPLES_USER")
+    EXAMPLES_PASSWORD = os.getenv("EXAMPLES_PASSWORD")
+    EXAMPLES_HOST = os.getenv("EXAMPLES_HOST")
+    EXAMPLES_PORT = os.getenv("EXAMPLES_PORT")
+    EXAMPLES_DB = os.getenv("EXAMPLES_DB")
+
+    # The SQLAlchemy connection string.
+    SQLALCHEMY_DATABASE_URI = (
+        f"{DATABASE_DIALECT}://"
+        f"{DATABASE_USER}:{DATABASE_PASSWORD}@"
+        f"{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_DB}"
+    )
+
+    SQLALCHEMY_EXAMPLES_URI = (
+        f"{DATABASE_DIALECT}://"
+        f"{EXAMPLES_USER}:{EXAMPLES_PASSWORD}@"
+        f"{EXAMPLES_HOST}:{EXAMPLES_PORT}/{EXAMPLES_DB}"
+    )
+
+    REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+    REDIS_PORT = os.getenv("REDIS_PORT", "6379")
+    REDIS_CELERY_DB = os.getenv("REDIS_CELERY_DB", "0")
+    REDIS_RESULTS_DB = os.getenv("REDIS_RESULTS_DB", "1")
+
+    RESULTS_BACKEND = FileSystemCache("/app/superset_home/sqllab")
+
+    CACHE_CONFIG = {
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_DEFAULT_TIMEOUT": 300,
+        "CACHE_KEY_PREFIX": "superset_",
+        "CACHE_REDIS_HOST": REDIS_HOST,
+        "CACHE_REDIS_PORT": REDIS_PORT,
+        "CACHE_REDIS_DB": REDIS_RESULTS_DB,
+    }
+    DATA_CACHE_CONFIG = CACHE_CONFIG
+
+
+    class CeleryConfig:
+        broker_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_CELERY_DB}"
+        imports = ("superset.sql_lab",)
+        result_backend = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_RESULTS_DB}"
+        worker_prefetch_multiplier = 1
+        task_acks_late = True
+        beat_schedule = {
+            "reports.scheduler": {
+                "task": "reports.scheduler",
+                "schedule": crontab(minute="*", hour="*"),
+            },
+            "reports.prune_log": {
+                "task": "reports.prune_log",
+                "schedule": crontab(minute=10, hour=0),
+            },
+        }
+
+
+    CELERY_CONFIG = CeleryConfig
+
+    WEBDRIVER_TYPE = "chrome"
+    EMAIL_NOTIFICATIONS = True
+    FEATURE_FLAGS = {"ALERT_REPORTS": True}
+    ALERT_REPORTS_NOTIFICATION_DRY_RUN = False
+    WEBDRIVER_BASEURL = "http://superset:8088/"
+    # The base URL for the email report hyperlinks.
+    WEBDRIVER_BASEURL_USER_FRIENDLY = WEBDRIVER_BASEURL
+    FAB_ADD_SECURITY_API = True
+    SQLLAB_CTAS_NO_LIMIT = True
+    APP_NAME = "Akashic-BI"
+    #
+    # Optionally import superset_config_docker.py (which will have been included on
+    # the PYTHONPATH) in order to allow for local settings to be overridden
+    #
+    try:
+        import superset_config_docker
+        from superset_config_docker import *  # noqa
+
+        logger.info(
+            f"Loaded your Docker configuration at " f"[{superset_config_docker.__file__}]"
+        )
+    except ImportError:
+        logger.info("Using default Docker config...")
+
+    from superset.secure import CustomSecurityManager
+    CUSTOM_SECURITY_MANAGER = CustomSecurityManager
+
+    SQLLAB_TIMEOUT = 300
+
+  superset_config_local.example: |+
+    #
+    # Licensed to the Apache Software Foundation (ASF) under one or more
+    # contributor license agreements.  See the NOTICE file distributed with
+    # this work for additional information regarding copyright ownership.
+    # The ASF licenses this file to You under the Apache License, Version 2.0
+    # (the "License"); you may not use this file except in compliance with
+    # the License.  You may obtain a copy of the License at
+    #
+    #    http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+    #
+
+    #
+    # This is an example "local" configuration file. In order to set/override config
+    # options that ONLY apply to your local environment, simply copy/rename this file
+    # to docker/pythonpath/superset_config_docker.py
+    # It ends up being imported by docker/superset_config.py which is loaded by
+    # superset/config.py
+    #
+
+    SQLALCHEMY_DATABASE_URI = "postgresql+psycopg2://pguser:pgpwd@some.host/superset"
+    SQLALCHEMY_ECHO = True
+
+kind: ConfigMap
+metadata:
+  name: {{ .Values.file1configmap | quote }}
+  namespace: {{ .Values.namespace.name | quote }}
+
+  

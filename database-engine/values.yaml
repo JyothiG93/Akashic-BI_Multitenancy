@@ -1,0 +1,30 @@
+release:
+  name: multitenant
+pod:
+ name: multitenatworker
+storageclassname: database-ebs-sc
+superset_workercontainer:
+  name: superset-worker
+  image: 802160436285.dkr.ecr.us-west-1.amazonaws.com/akashicmt:superset0.4
+  imagepullPolicy: IfNotPresent
+namespace:
+  name: databaseengine
+configMapdata:
+  superset:
+    pythonpath: /app/pythonpath:/app/docker/pythonpath_dev
+    supersetenv: production
+    cypressconfig: false
+    mapboxapikey: ''
+pvc:
+  name: databaseengine-pvc
+  storageClassName: database-ebs-sc
+  storage: 5Gi
+configmapname: app-config 
+ecrsecretname: awsecr-cred 
+secretcredname: databaseengine-cred
+file1configmap: worker-mnt-config
+file2configmap: worker-mnt1-config
+service:
+   worker:
+    port: 80
+    targetport: 80

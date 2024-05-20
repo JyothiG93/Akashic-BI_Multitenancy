@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.pvc.redis.name | quote}}
+  namespace: {{ .Values.namespace.name | quote }}
+spec:
+  storageClassName: {{ .Values.pvc.redis.storageClassName | quote}}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.pvc.redis.storage | quote}}
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.pvc.database.name | quote}}
+  namespace: {{ .Values.namespace.name | quote }}
+spec:
+  storageClassName: {{ .Values.pvc.database.storageClassName | quote}}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.pvc.database.storage}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.pvc.superset.name | quote}}
+  namespace: {{ .Values.namespace.name | quote }}
+spec:
+  storageClassName: {{ .Values.pvc.database.storageClassName | quote }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.pvc.superset.storage | quote}}

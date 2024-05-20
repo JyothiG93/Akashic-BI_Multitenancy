@@ -1,0 +1,70 @@
+release:
+ name: tenant3
+storageclassname: tenant3-ebs-sc
+namespace:
+ name: tenant3
+pods:
+ pod1:
+  name: tenant3-akashic-bi-db
+  restartPolicy: Always
+ pod2: 
+  name: tenant3-akashic-bi-superset
+  restartPolicy: Always
+supersetContainer:
+  name: superset-app
+  image: 802160436285.dkr.ecr.us-west-1.amazonaws.com/akashicmt:superset0.4
+  port: 8088
+  imagepullPolicy: IfNotPresent
+superset_initcontainer:
+  name: superset-init
+  image: 802160436285.dkr.ecr.us-west-1.amazonaws.com/akashicmt:superset0.4
+  imagepullPolicy: IfNotPresent
+superset_workercontainer:
+  name: superset-worker
+  image: 802160436285.dkr.ecr.us-west-1.amazonaws.com/akashicmt:superset0.4
+  imagepullPolicy: IfNotPresent
+superset_worker_beatcontainer:
+  name: superset-worker-beat
+  image: 802160436285.dkr.ecr.us-west-1.amazonaws.com/akashicmt:superset0.4
+  imagepullPolicy: IfNotPresent
+databaseContainer:
+  name: superset-db
+  image: postgres:15
+  imagepullPolicy: IfNotPresent
+redisContainer:
+  name: superset-cache
+  image: redis:7
+  imagepullPolicy: IfNotPresent
+pvc:
+  redis:
+    storageClassName: tenant3-ebs-sc
+    name: tenant3-redis-pvc
+    storage: 5Gi
+  database:
+    storageClassName: tenant3-ebs-sc
+    name: tenant3-database-pvc
+    storage: 15Gi
+  superset:
+    storageClassName: tenant3-ebs-sc
+    name: tenant3-superset-pvc
+    storage: 5Gi
+configMapdata:
+  superset:
+    pythonpath: /app/pythonpath:/app/docker/pythonpath_dev
+    supersetenv: production
+    cypressconfig: false
+    supersetport: 8088
+    mapboxapikey: ''
+ecrsecretname: tenant3-awsecr-cred
+secretcredname: tenant3-db-app-credentials 
+configmapname: tenant3-db-app-config 
+file1configmap: tenant3-mnt-config
+file2configmap: tenant3-db-mnt-config
+file3configmap: tenant3-mnt1-config
+service:
+  database:
+    port: 5432
+    targetport: 5432
+  redis:
+    port: 6379
+    targetport: 6379

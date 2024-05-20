@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Values.pods.pod1.name | quote }}
+  namespace: {{ .Values.namespace.name | quote }}
+  labels: 
+     app: database-redis
+spec:
+  restartPolicy: {{ .Values.pods.pod1.restartPolicy | quote }}
+  containers:
+  - name: {{ .Values.redisContainer.name | quote }}
+    image: {{ .Values.redisContainer.image | quote }}
+    imagePullPolicy: {{ .Values.redisContainer.imagePullPolicy | quote }}
+    readinessProbe:
+      tcpSocket:
+        port: 6379
+    env:
+      - name: REDIS_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-port
+      - name: REDIS_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-user
+      - name: REDIS_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-password
+    volumeMounts:
+      - name: redis
+        mountPath: /data
+  - name: {{ .Values.databaseContainer.name | quote }}
+    image: {{ .Values.databaseContainer.image | quote }}
+    imagePullPolicy: {{ .Values.databaseContainer.imagePullPolicy | quote }}
+    readinessProbe:
+      tcpSocket:
+        port: 5432
+      initialDelaySeconds: 5
+    env:
+      - name: POSTGRES_HOST
+        value: multitenant-service.databaseengine.svc.cluster.local
+      - name: POSTGRES_DB
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: postgres-db
+      - name: POSTGRES_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: postgres-user
+      - name: POSTGRES_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: postgres-password
+      - name: REDIS_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-port
+      - name: REDIS_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-user
+      - name: REDIS_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: redis-password
+      - name: DATABASE_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: db-port
+      - name: DATABASE_DIALECT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: dialect
+      - name: DATABASE_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: db-user
+      - name: DATABASE_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: db-password
+      - name: DATABASE_DB
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: database-db
+      - name: EXAMPLES_PORT
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-port
+      - name: EXAMPLES_DB
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-db
+      - name: EXAMPLES_USER
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-user
+      - name: EXAMPLES_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secretcredname | quote }}
+            key: example-password
+    volumeMounts:
+      - name: db-home
+        mountPath: /var/lib/postgresql/
+      - name: db-config-volume
+        mountPath: /docker-entrypoint-initdb.d
+  volumes:
+    - name: redis
+      persistentVolumeClaim:
+        claimName: {{ .Values.pvc.redis.name | quote }}
+    - name: db-home
+      persistentVolumeClaim:
+        claimName: {{ .Values.pvc.database.name | quote }}
+    - name: db-config-volume
+      configMap:
+        name: {{ .Values.file2configmap | quote }}
+        defaultMode: 0777
